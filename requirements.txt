@@ -1,0 +1,8 @@
+streamlit
+transformers
+torch
+pandas
+plotly
+scikit-learn
+spacy
+sqlalchemy

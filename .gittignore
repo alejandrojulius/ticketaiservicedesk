@@ -1,0 +1,11 @@
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+
+# Archivos grandes
+*.db
+*.pth
+
+# Archivos temporales
+.DS_Store
