@@ -1,69 +1,115 @@
 import streamlit as st
-from model import clasificar_ticket
-from database import init_db, guardar_ticket, obtener_tickets
 import pandas as pd
 import plotly.express as px
+import os
+from datetime import datetime
+
+from model import clasificar_ticket
+from database import init_db, guardar_ticket, obtener_tickets, actualizar_ticket
+from auth import login, logout
 
 st.set_page_config(page_title="TicketAI", layout="wide")
 st.title("🧠 TicketAI - Sistema Inteligente de Service Desk")
 
-init_db()  # Inicializar base de datos
+init_db()
 
-menu = st.sidebar.selectbox("Menú", ["Nuevo Ticket", "Dashboard", "Historial"])
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
+if not st.session_state['logged_in']:
+    login()
+    st.stop()
+
+st.sidebar.success(f"👤 {st.session_state['nombre']}")
+st.sidebar.info(f"Rol: {st.session_state['rol'].upper()}")
+logout()
+
+menu = st.sidebar.selectbox("Menú", ["Nuevo Ticket", "Dashboard", "Gestionar Tickets", "Historial"])
+
+# ==================== NUEVO TICKET ====================
 if menu == "Nuevo Ticket":
     st.subheader("📋 Ingresar Nuevo Ticket")
-    titulo = st.text_input("Título del ticket")
-    descripcion = st.text_area("Descripción del problema", height=150)
+    tipo_ticket = st.selectbox("Tipo de Ticket *", ["Incidente", "Requerimiento"])
+    titulo = st.text_input("Título del ticket *")
+    descripcion = st.text_area("Descripción del problema *", height=150)
+    archivo = st.file_uploader("Adjuntar evidencia", type=["jpg", "jpeg", "png", "docx", "pdf"])
     
-    if st.button("🔍 Clasificar con IA", type="primary"):
+    if st.button("🔍 Clasificar y Registrar Ticket", type="primary"):
         if titulo and descripcion:
-            with st.spinner("Analizando con Inteligencia Artificial..."):
+            with st.spinner("Analizando con IA..."):
                 resultado = clasificar_ticket(titulo, descripcion)
             
-            st.success("✅ Ticket procesado correctamente")
+            if tipo_ticket == "Incidente":
+                resultado["prioridad"] = "Alta"
+            else:
+                resultado["prioridad"] = "Media"
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Categoría", resultado["categoria"])
-            col2.metric("Prioridad", resultado["prioridad"])
-            col3.metric("Confianza", f"{resultado['confianza']}%")
+            tiene_evidencia = 1 if archivo is not None else 0
+            ticket_id = guardar_ticket(titulo, descripcion, resultado["categoria"], resultado["prioridad"], resultado["confianza"], tiene_evidencia)
             
-            st.info(f"**Explicación de la IA:** {resultado['explicacion']}")
+            st.success(f"✅ Ticket registrado correctamente - ID: **{ticket_id}**")
             
-            # Guardar en base de datos
-            guardar_ticket(titulo, descripcion, resultado["categoria"], 
-                         resultado["prioridad"], resultado["confianza"])
+            if archivo is not None:
+                os.makedirs("uploads", exist_ok=True)
+                with open(f"uploads/{archivo.name}", "wb") as f:
+                    f.write(archivo.getbuffer())
+                st.success(f"📎 Evidencia adjuntada: {archivo.name}")
         else:
-            st.error("Por favor completa todos los campos")
+            st.error("Completa título y descripción")
 
+# ==================== DASHBOARD ====================
 elif menu == "Dashboard":
     st.subheader("📊 Dashboard")
     df = obtener_tickets()
-    
     if not df.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Gráfico correcto con Plotly
-            fig = px.bar(df['categoria'].value_counts(), 
-                        title="Tickets por Categoría",
-                        labels={'index': 'Categoría', 'value': 'Cantidad'})
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig2 = px.pie(df, names='categoria', title="Distribución por Categoría")
-            st.plotly_chart(fig2, use_container_width=True)
+        rol = st.session_state['rol']
+        if rol == 'ti':
+            col1, col2, col3 = st.columns(3)
+            with col1: st.metric("Total", len(df))
+            with col2: st.metric("Pendientes", len(df[df['estado']=='Pendiente']))
+            with col3: st.metric("Resueltos", len(df[df['estado']=='Resuelto']))
             
-            st.metric("Total de tickets procesados", len(df))
+            col4, col5 = st.columns(2)
+            with col4:
+                fig = px.bar(df['categoria'].value_counts(), title="Tickets por Categoría")
+                st.plotly_chart(fig, use_container_width=True)
+            with col5:
+                fig2 = px.pie(df, names='estado', title="Estado de Tickets")
+                st.plotly_chart(fig2, use_container_width=True)
+            
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.dataframe(df[['id', 'titulo', 'categoria', 'prioridad', 'estado']], use_container_width=True)
     else:
-        st.info("Aún no hay tickets registrados. Crea algunos para ver el dashboard.")
+        st.info("No hay tickets aún.")
 
+# ==================== GESTIONAR TICKETS (SOLO TI) ====================
+elif menu == "Gestionar Tickets" and st.session_state['rol'] == 'ti':
+    st.subheader("🔧 Gestionar Tickets")
+    df = obtener_tickets()
+    if not df.empty:
+        for index, row in df.iterrows():
+            with st.expander(f"Ticket {row['id']} - {row['titulo']}"):
+                st.write(f"**Descripción:** {row['descripcion']}")
+                st.write(f"**Estado actual:** {row['estado']}")
+                
+                nuevo_estado = st.selectbox("Nuevo Estado", ["Pendiente", "En Espera", "Atendido", "Reasignado"], key=f"est_{row['id']}")
+                respuesta = st.text_area("Respuesta al usuario", key=f"resp_{row['id']}")
+                
+                if st.button("Guardar Cambios", key=f"btn_{row['id']}"):
+                    actualizar_ticket(row['id'], nuevo_estado, "Sí", respuesta)
+                    st.success("Ticket actualizado")
+                    st.rerun()
+    else:
+        st.info("No hay tickets para gestionar.")
+
+# ==================== HISTORIAL ====================
 elif menu == "Historial":
     st.subheader("📜 Historial de Tickets")
     df = obtener_tickets()
     if not df.empty:
         st.dataframe(df, use_container_width=True)
     else:
-        st.info("No hay tickets aún.")
+        st.info("No hay tickets registrados.")
 
 st.caption("Proyecto de Titulación - Cibertec | TicketAI con IA")
