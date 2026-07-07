@@ -8,7 +8,7 @@ def init_db():
     # Tabla de tickets
     conn.execute('''
         CREATE TABLE IF NOT EXISTS tickets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT PRIMARY KEY,
             titulo TEXT,
             descripcion TEXT,
             categoria TEXT,
@@ -17,7 +17,8 @@ def init_db():
             fecha TEXT,
             estado TEXT DEFAULT 'Pendiente',
             tiene_evidencia INTEGER DEFAULT 0,
-            atendido_por_ti TEXT DEFAULT 'No'
+            atendido_por_ti TEXT DEFAULT 'No',
+            respuesta TEXT
         )
     ''')
     
@@ -45,21 +46,29 @@ def init_db():
     conn.commit()
     conn.close()
 
-def guardar_ticket(titulo, descripcion, categoria, prioridad, confianza, tiene_evidencia=0):
+def guardar_ticket(tipo_ticket, titulo, descripcion, categoria, prioridad, confianza, tiene_evidencia=0):
     conn = sqlite3.connect('tickets.db')
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    prefix = "INC" if tipo_ticket == "Incidente" else "REQ"
+    cursor = conn.execute(f"SELECT COUNT(*) FROM tickets WHERE id LIKE '{prefix}%'")
+    count = cursor.fetchone()[0] + 1
+    ticket_id = f"{prefix}{count:04d}"
+    
     conn.execute('''
-        INSERT INTO tickets (titulo, descripcion, categoria, prioridad, confianza, fecha, tiene_evidencia)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (titulo, descripcion, categoria, prioridad, confianza, fecha, tiene_evidencia))
+        INSERT INTO tickets (id, titulo, descripcion, categoria, prioridad, confianza, fecha, tiene_evidencia)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (ticket_id, titulo, descripcion, categoria, prioridad, confianza, fecha, tiene_evidencia))
     conn.commit()
     conn.close()
+    return ticket_id
 
 def obtener_tickets():
     conn = sqlite3.connect('tickets.db')
     df = pd.read_sql_query("SELECT * FROM tickets ORDER BY fecha DESC", conn)
     conn.close()
     return df
+
 def actualizar_ticket(ticket_id, estado, atendido_por_ti="Sí", respuesta=""):
     conn = sqlite3.connect('tickets.db')
     conn.execute('''

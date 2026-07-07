@@ -24,10 +24,10 @@ st.sidebar.success(f"👤 {st.session_state['nombre']}")
 st.sidebar.info(f"Rol: {st.session_state['rol'].upper()}")
 logout()
 
-menu = st.sidebar.selectbox("Menú", ["Nuevo Ticket", "Dashboard", "Gestionar Tickets", "Historial"])
+# Menú principal con tabs
+tab1, tab2, tab3, tab4 = st.tabs(["Nuevo Ticket", "Dashboard", "Gestionar Tickets", "Historial"])
 
-# ==================== NUEVO TICKET ====================
-if menu == "Nuevo Ticket":
+with tab1:  # Nuevo Ticket
     st.subheader("📋 Ingresar Nuevo Ticket")
     tipo_ticket = st.selectbox("Tipo de Ticket *", ["Incidente", "Requerimiento"])
     titulo = st.text_input("Título del ticket *")
@@ -45,9 +45,9 @@ if menu == "Nuevo Ticket":
                 resultado["prioridad"] = "Media"
             
             tiene_evidencia = 1 if archivo is not None else 0
-            ticket_id = guardar_ticket(titulo, descripcion, resultado["categoria"], resultado["prioridad"], resultado["confianza"], tiene_evidencia)
+            ticket_id = guardar_ticket(tipo_ticket, titulo, descripcion, resultado["categoria"], resultado["prioridad"], resultado["confianza"], tiene_evidencia)
             
-            st.success(f"✅ Ticket registrado correctamente - ID: **{ticket_id}**")
+            st.success(f"✅ Ticket registrado - **ID: {ticket_id}**")
             
             if archivo is not None:
                 os.makedirs("uploads", exist_ok=True)
@@ -57,13 +57,11 @@ if menu == "Nuevo Ticket":
         else:
             st.error("Completa título y descripción")
 
-# ==================== DASHBOARD ====================
-elif menu == "Dashboard":
+with tab2:  # Dashboard
     st.subheader("📊 Dashboard")
     df = obtener_tickets()
     if not df.empty:
-        rol = st.session_state['rol']
-        if rol == 'ti':
+        if st.session_state['rol'] == 'ti':
             col1, col2, col3 = st.columns(3)
             with col1: st.metric("Total", len(df))
             with col2: st.metric("Pendientes", len(df[df['estado']=='Pendiente']))
@@ -79,32 +77,25 @@ elif menu == "Dashboard":
             
             st.dataframe(df, use_container_width=True)
         else:
-            st.dataframe(df[['id', 'titulo', 'categoria', 'prioridad', 'estado']], use_container_width=True)
+            st.dataframe(df, use_container_width=True)
     else:
-        st.info("No hay tickets aún.")
+        st.info("No hay tickets.")
 
-# ==================== GESTIONAR TICKETS (SOLO TI) ====================
-elif menu == "Gestionar Tickets" and st.session_state['rol'] == 'ti':
-    st.subheader("🔧 Gestionar Tickets")
-    df = obtener_tickets()
-    if not df.empty:
+with tab3:  # Gestionar Tickets (Solo TI)
+    if st.session_state['rol'] == 'ti':
+        st.subheader("🔧 Gestionar Tickets")
+        df = obtener_tickets()
         for index, row in df.iterrows():
-            with st.expander(f"Ticket {row['id']} - {row['titulo']}"):
+            with st.expander(f"{row['id']} - {row['titulo']}"):
                 st.write(f"**Descripción:** {row['descripcion']}")
-                st.write(f"**Estado actual:** {row['estado']}")
-                
-                nuevo_estado = st.selectbox("Nuevo Estado", ["Pendiente", "En Espera", "Atendido", "Reasignado"], key=f"est_{row['id']}")
+                nuevo_estado = st.selectbox("Estado", ["Pendiente", "En Espera", "Atendido", "Reasignado"], key=f"est_{row['id']}")
                 respuesta = st.text_area("Respuesta al usuario", key=f"resp_{row['id']}")
-                
                 if st.button("Guardar Cambios", key=f"btn_{row['id']}"):
                     actualizar_ticket(row['id'], nuevo_estado, "Sí", respuesta)
                     st.success("Ticket actualizado")
                     st.rerun()
-    else:
-        st.info("No hay tickets para gestionar.")
 
-# ==================== HISTORIAL ====================
-elif menu == "Historial":
+with tab4:  # Historial
     st.subheader("📜 Historial de Tickets")
     df = obtener_tickets()
     if not df.empty:
